@@ -9,6 +9,7 @@ paths:
   cache_dir: "data/cache"
   local_geojson: "data/Deslizamientos_CNE.geojson"
   dem_dir: "data/dem"
+  insar_dir: "data/insar"
 
 dem:
   google_drive_id: "1LfaVUfK6g1O3vFprYtRpzs_rqIGNvsu6"
@@ -27,6 +28,12 @@ sentinel1:
   max_results: 30
   platform: "Sentinel-1"
   processing_level: "GRD"
+
+insar:
+  max_pairs: 4
+  max_temp_baseline_days: 48
+  max_sites_batch: 3
+  looks: "20x4"
 
 disclaimer: >
   Esta aplicación monitorea deformación potencial y prioriza sitios para

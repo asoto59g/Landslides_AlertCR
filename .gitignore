@@ -9,10 +9,12 @@ venv/
 # Data caches and large rasters
 data/cache/
 data/dem/
+data/insar/
 *.tif
 *.tiff
 *.img
 *.vrt
+*.zip
 
 # IDE / OS
 .idea/

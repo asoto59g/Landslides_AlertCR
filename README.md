@@ -6,40 +6,55 @@
 [![CNE WFS](https://img.shields.io/badge/CNE-WFS-1B5E20)](http://mapas.cne.go.cr/servicios/cne/wfs)
 [![GeoPandas](https://img.shields.io/badge/GeoPandas-GIS-orange)](https://geopandas.org/)
 [![ASF](https://img.shields.io/badge/ASF-asf__search-6A1B9A)](https://github.com/asfadmin/Discovery-asf_search)
+[![HyP3](https://img.shields.io/badge/ASF-HyP3%20InSAR-004B87)](https://hyp3-docs.asf.alaska.edu/)
 [![GitHub last commit](https://img.shields.io/github/last-commit/asoto59g/Landslides_AlertCR)](https://github.com/asoto59g/Landslides_AlertCR)
 [![GitHub repo](https://img.shields.io/badge/GitHub-Landslides__AlertCR-181717?logo=github)](https://github.com/asoto59g/Landslides_AlertCR)
 
 Monitoreo de deformación con **Sentinel-1 (InSAR)** sobre sitios del **CNE**, con umbrales inspirados en Shirzaei y disclaimers de Sah.
 
-## Qué hace (v1)
+## Qué hace
 
-- Carga deslizamientos desde el WFS CNE: `http://mapas.cne.go.cr/servicios/cne/wfs` (`cne:deslizamientos`, opcional `cne:coronas_de_deslizamientos`)
-- Fallback a `data/Deslizamientos_CNE.geojson` si el WFS no responde
+- Carga deslizamientos desde el WFS CNE (`cne:deslizamientos` / coronas)
 - AOIs con buffer métrico (CRTM05)
-- Series LOS demo (~10 mm/mes / aceleración / estacional) o CSV (`fecha, los_mm`)
+- Series LOS: demo, CSV o **InSAR end-to-end** (solo sitios filtrados/seleccionados)
 - Alertas Verde / Amarillo / Naranja / Rojo (priorizar inspección, no predicción de colapso)
-- Catálogo Sentinel-1 vía ASF (`asf_search`)
-- Contexto DEM CR (Google Drive) con muestreo de pendiente
+- Catálogo Sentinel-1 (ASF) y contexto DEM CR
+
+## InSAR end-to-end (sitios seleccionados)
+
+Pestaña **InSAR E2E**:
+
+1. Busca SLC Sentinel-1 sobre el AOI
+2. Arma pares consecutivos (misma path / dirección)
+3. Envía jobs [ASF HyP3](https://hyp3-docs.asf.alaska.edu/) InSAR con desplazamiento LOS
+4. Descarga productos y muestrea el AOI → `data/insar/<site_id>/los_series.csv`
+5. Active el modo de serie **InSAR** en el sidebar para alimentar alertas
+
+Alcance: **solo el sitio seleccionado** o un **lote acotado** de los sitios ya filtrados (no el país completo).
+
+### Credenciales Earthdata
+
+```toml
+# .streamlit/secrets.toml
+EARTHDATA_USERNAME = "su_usuario"
+EARTHDATA_PASSWORD = "su_password"
+```
+
+Cuenta: [URS Earthdata](https://urs.earthdata.nasa.gov/). Ejemplo en `.streamlit/secrets.toml.example`.
 
 ## Instalación
 
 ```bash
 python -m venv .venv
-# Windows
 .venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-## Ejecutar
-
-```bash
 streamlit run app.py
 ```
 
 ## Configuración
 
-Editar `config.yaml` (URL WFS, umbrales, id del DEM en Drive, TTL de caché).
+Editar `config.yaml` (WFS, umbrales, DEM, `insar.max_pairs`, `insar.max_sites_batch`).
 
 ## Nota científica
 
-Detectar movimiento lento medible **no** equivale a determinar cuándo fallará una ladera. La app es una herramienta de priorización y seguimiento.
+Detectar movimiento lento medible **no** equivale a determinar cuándo fallará una ladera.

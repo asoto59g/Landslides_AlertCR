@@ -22,6 +22,15 @@ from src.deformation import (  # noqa: E402
     parse_deformation_csv,
 )
 from src.dem import ensure_dem, sample_slope_stats  # noqa: E402
+from src.insar import (  # noqa: E402
+    build_consecutive_pairs,
+    get_earthdata_creds,
+    load_series_csv,
+    refresh_and_ingest_site,
+    run_insar_for_site,
+    search_slc_stack,
+    site_insar_dir,
+)
 from src.sentinel import demo_catalog_rows, search_sentinel1  # noqa: E402
 from src.sites import build_aois, filter_sites, site_bbox  # noqa: E402
 
@@ -199,7 +208,7 @@ def main():
     )
 
     st.sidebar.header("Serie de deformación")
-    series_mode = st.sidebar.radio("Modo", ["Demo", "CSV"], horizontal=True)
+    series_mode = st.sidebar.radio("Modo", ["Demo", "CSV", "InSAR"], horizontal=True)
     demo_scenario = st.sidebar.selectbox(
         "Escenario demo",
         ["stable", "slow_shirzaei", "accelerating", "seasonal_noise"],
@@ -252,6 +261,7 @@ def main():
     selected_id = site_row["site_id"]
 
     # Deformation series for selected site
+    insar_root = _path(cfg, "insar_dir") if "insar_dir" in cfg.get("paths", {}) else ROOT / "data" / "insar"
     if series_mode == "CSV" and csv_file is not None:
         try:
             series = parse_deformation_csv(csv_file)
@@ -260,6 +270,14 @@ def main():
             st.error(f"CSV inválido: {exc}")
             series = make_demo_series(scenario=demo_scenario, seed=hash(selected_id) % 10_000)
             series_label = f"Demo ({demo_scenario}) — fallback"
+    elif series_mode == "InSAR":
+        existing = load_series_csv(site_insar_dir(insar_root, selected_id) / "los_series.csv")
+        if existing is not None and not existing.empty:
+            series = existing
+            series_label = "InSAR (serie local)"
+        else:
+            series = make_demo_series(scenario=demo_scenario, seed=hash(selected_id) % 10_000)
+            series_label = "InSAR pendiente — usando demo hasta procesar"
     else:
         series = make_demo_series(scenario=demo_scenario, seed=hash(selected_id) % 10_000)
         series_label = f"Demo ({demo_scenario})"
@@ -267,20 +285,24 @@ def main():
     metrics = compute_metrics(series)
     alert = classify_alert(metrics.velocity_mm_month, metrics.acceleration_mm_month2, th)
 
-    # Assign same alert to selected; others get demo derived from site_id for map coloring
+    # Map coloring: prefer InSAR series per site when available
     alert_by_id = {}
     for _, r in sites.iterrows():
         sid = r["site_id"]
         if sid == selected_id:
             alert_by_id[sid] = alert.level
+            continue
+        local = load_series_csv(site_insar_dir(insar_root, sid) / "los_series.csv")
+        if local is not None and not local.empty:
+            m = compute_metrics(local)
+            alert_by_id[sid] = classify_alert(m.velocity_mm_month, m.acceleration_mm_month2, th).level
         else:
-            # Light map coloring from demo scenario keyed by site
             s = make_demo_series(scenario=demo_scenario, seed=hash(sid) % 10_000)
             m = compute_metrics(s)
             alert_by_id[sid] = classify_alert(m.velocity_mm_month, m.acceleration_mm_month2, th).level
 
-    tab_map, tab_site, tab_s1, tab_science = st.tabs(
-        ["Mapa", "Sitio / alerta", "Catálogo Sentinel-1", "Base científica"]
+    tab_map, tab_site, tab_s1, tab_insar, tab_science = st.tabs(
+        ["Mapa", "Sitio / alerta", "Catálogo Sentinel-1", "InSAR E2E", "Base científica"]
     )
 
     with tab_map:
@@ -341,7 +363,7 @@ def main():
     with tab_s1:
         st.markdown(
             "Catálogo de escenas **Sentinel-1 GRD** (ASF) sobre el AOI del sitio. "
-            "La interferometría InSAR completa queda fuera de v1; use CSV de LOS cuando tenga productos."
+            "Para interferometría use la pestaña **InSAR E2E** (SLC + HyP3)."
         )
         use_asf = st.checkbox("Consultar ASF (requiere asf_search + red)", value=True)
         bbox = site_bbox(aoi_row.geometry, pad_deg=0.05)
@@ -359,6 +381,150 @@ def main():
                 st.dataframe(cat, use_container_width=True)
         else:
             st.dataframe(demo_catalog_rows(), use_container_width=True)
+
+    with tab_insar:
+        st.markdown(
+            """
+### Pipeline InSAR end-to-end (solo sitios filtrados / seleccionados)
+
+1. Buscar **SLC** Sentinel-1 sobre el AOI  
+2. Armar pares consecutivos (misma órbita / dirección)  
+3. Enviar jobs **ASF HyP3** InSAR (`include_los_displacement`)  
+4. Descargar productos y muestrear **LOS medio** en el AOI  
+5. Construir serie acumulada → alertas (velocidad / aceleración)
+
+No se procesa el país completo: únicamente el sitio actual o un lote acotado de los sitios **ya filtrados** en el mapa.
+"""
+        )
+        icfg = cfg.get("insar", {})
+        user, pwd = get_earthdata_creds()
+        if user:
+            st.success(f"Earthdata detectado: `{user}`")
+        else:
+            st.warning(
+                "Configure `EARTHDATA_USERNAME` y `EARTHDATA_PASSWORD` en "
+                "`.streamlit/secrets.toml` o variables de entorno para enviar jobs HyP3."
+            )
+
+        c_a, c_b, c_c = st.columns(3)
+        start = c_a.date_input("Inicio búsqueda SLC", value=pd.Timestamp("2025-01-01").date())
+        end = c_b.date_input("Fin búsqueda SLC", value=pd.Timestamp.today().date())
+        max_pairs = c_c.slider("Máx. pares / sitio", 1, 8, int(icfg.get("max_pairs", 4)))
+        max_base = st.slider(
+            "Baseline temporal máx. (días)",
+            12,
+            96,
+            int(icfg.get("max_temp_baseline_days", 48)),
+            6,
+        )
+        wait_jobs = st.checkbox(
+            "Esperar jobs HyP3 (puede tardar 30–90+ min)",
+            value=False,
+            help="Si está desmarcado, se envían jobs y puede refrescar después.",
+        )
+        scope = st.radio(
+            "Alcance",
+            ["Solo sitio seleccionado", "Lote de sitios filtrados"],
+            horizontal=True,
+        )
+        max_batch = st.slider(
+            "Máx. sitios en lote",
+            1,
+            int(icfg.get("max_sites_batch", 3)) + 2,
+            int(icfg.get("max_sites_batch", 3)),
+        )
+
+        bbox = site_bbox(aoi_row.geometry, pad_deg=0.05)
+        if st.button("Vista previa pares SLC (sitio seleccionado)"):
+            with st.spinner("Buscando SLC…"):
+                stack, msg = search_slc_stack(
+                    bbox,
+                    start=str(start),
+                    end=str(end),
+                    max_results=50,
+                )
+            st.caption(msg)
+            if not stack.empty:
+                pairs = build_consecutive_pairs(
+                    stack, max_pairs=max_pairs, max_temp_baseline_days=max_base
+                )
+                st.dataframe(stack, use_container_width=True)
+                st.write(f"**{len(pairs)} pares** propuestos")
+                if pairs:
+                    st.dataframe(
+                        pd.DataFrame(
+                            [
+                                {
+                                    "reference": p.reference,
+                                    "secondary": p.secondary,
+                                    "ref_date": p.ref_date,
+                                    "sec_date": p.sec_date,
+                                    "path": p.path,
+                                    "flight_direction": p.flight_direction,
+                                }
+                                for p in pairs
+                            ]
+                        ),
+                        use_container_width=True,
+                    )
+
+        col_run, col_ref = st.columns(2)
+        run_clicked = col_run.button("Ejecutar InSAR E2E", type="primary")
+        refresh_clicked = col_ref.button("Refrescar jobs / ingerir productos")
+
+        targets = []
+        if scope.startswith("Solo"):
+            targets = [(selected_id, aoi_row.geometry, site_bbox(aoi_row.geometry, 0.05))]
+        else:
+            n = min(max_batch, len(aois))
+            for i in range(n):
+                row = aois.iloc[i]
+                targets.append((row["site_id"], row.geometry, site_bbox(row.geometry, 0.05)))
+
+        if run_clicked:
+            progress = st.progress(0.0)
+            logs = []
+            for i, (sid, geom, bb) in enumerate(targets):
+                with st.spinner(f"InSAR {sid} ({i+1}/{len(targets)})…"):
+                    res = run_insar_for_site(
+                        site_id=sid,
+                        aoi_geom=geom,
+                        bbox=bb,
+                        out_root=insar_root,
+                        start=str(start),
+                        end=str(end),
+                        max_pairs=max_pairs,
+                        max_temp_baseline_days=max_base,
+                        submit=True,
+                        wait=wait_jobs,
+                    )
+                logs.append(f"**{sid}**: {res.get('message')}")
+                if res.get("pairs") is not None and not res["pairs"].empty:
+                    logs.append(f"- Pares: {len(res['pairs'])}")
+                progress.progress((i + 1) / len(targets))
+            for line in logs:
+                st.markdown(line)
+            st.info("Ponga el modo de serie en **InSAR** (sidebar) para usar `los_series.csv` en alertas.")
+            st.rerun()
+
+        if refresh_clicked:
+            for sid, geom, _bb in targets:
+                with st.spinner(f"Refrescando {sid}…"):
+                    res = refresh_and_ingest_site(
+                        site_id=sid,
+                        aoi_geom=geom,
+                        out_root=insar_root,
+                    )
+                st.write(f"**{sid}**: {res.get('message')}")
+                if res.get("series") is not None and not res["series"].empty:
+                    st.line_chart(res["series"].set_index("date")[["los_mm"]])
+            st.rerun()
+
+        local_series = load_series_csv(site_insar_dir(insar_root, selected_id) / "los_series.csv")
+        if local_series is not None and not local_series.empty:
+            st.subheader(f"Serie InSAR local — {selected_id}")
+            st.dataframe(local_series, use_container_width=True)
+            st.line_chart(local_series.set_index("date")[["los_mm"]])
 
     with tab_science:
         st.markdown(
@@ -382,7 +548,7 @@ def main():
 
 1. Sitios oficiales desde el **WFS CNE** (`cne:deslizamientos`).
 2. Monitoreo priorizado por **velocidad + aceleración** LOS.
-3. Catálogo S1 para planificar pases; series demo/CSV hasta tener InSAR procesado.
+3. **InSAR E2E** vía ASF HyP3 solo en sitios filtrados/seleccionados.
 4. Alertas = **escalamiento a inspección**, no sirena de colapso inminente.
 """
         )
