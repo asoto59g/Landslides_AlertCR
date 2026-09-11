@@ -1,5 +1,14 @@
 # Alerta temprana de laderas — Costa Rica
 
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Sentinel-1](https://img.shields.io/badge/Sentinel--1-InSAR-0B3D91?logo=esa&logoColor=white)](https://sentinel.esa.int/web/sentinel/missions/sentinel-1)
+[![CNE WFS](https://img.shields.io/badge/CNE-WFS-1B5E20)](http://mapas.cne.go.cr/servicios/cne/wfs)
+[![GeoPandas](https://img.shields.io/badge/GeoPandas-GIS-orange)](https://geopandas.org/)
+[![ASF](https://img.shields.io/badge/ASF-asf__search-6A1B9A)](https://github.com/asfadmin/Discovery-asf_search)
+[![GitHub last commit](https://img.shields.io/github/last-commit/asoto59g/Landslides_AlertCR)](https://github.com/asoto59g/Landslides_AlertCR)
+[![GitHub repo](https://img.shields.io/badge/GitHub-Landslides__AlertCR-181717?logo=github)](https://github.com/asoto59g/Landslides_AlertCR)
+
 Monitoreo de deformación con **Sentinel-1 (InSAR)** sobre sitios del **CNE**, con umbrales inspirados en Shirzaei y disclaimers de Sah.
 
 ## Qué hace (v1)
