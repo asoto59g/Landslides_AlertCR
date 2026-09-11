@@ -32,15 +32,37 @@ Pestaña **InSAR E2E**:
 
 Alcance: **solo el sitio seleccionado** o un **lote acotado** de los sitios ya filtrados (no el país completo).
 
-### Credenciales Earthdata
+### Credenciales Earthdata (obligatorias para HyP3)
+
+Cuenta NASA: [urs.earthdata.nasa.gov](https://urs.earthdata.nasa.gov/).
+
+**Opción A — Streamlit Cloud (app publicada)**
+
+1. Abra la app en Streamlit Cloud  
+2. Menú **⋮** → **Settings** → **Secrets** (o *Manage app* → **Settings** → **Secrets**)  
+3. Pegue:
 
 ```toml
-# .streamlit/secrets.toml
+EARTHDATA_USERNAME = "su_usuario_urs"
+EARTHDATA_PASSWORD = "su_password_urs"
+```
+
+4. Guarde y haga **Reboot** de la app  
+
+**Opción B — Local**
+
+Cree `.streamlit/secrets.toml` en la raíz del repo (plantilla: [`.streamlit/secrets.toml.example`](.streamlit/secrets.toml.example)):
+
+```toml
 EARTHDATA_USERNAME = "su_usuario"
 EARTHDATA_PASSWORD = "su_password"
 ```
 
-Cuenta: [URS Earthdata](https://urs.earthdata.nasa.gov/). Ejemplo en `.streamlit/secrets.toml.example`.
+**Opción C — Solo esta sesión**
+
+En la pestaña **InSAR E2E** de la app hay un formulario *Credenciales Earthdata (sesión)* que guarda usuario/contraseña en `st.session_state` (no se sube a GitHub).
+
+Sin una de estas tres opciones, la búsqueda SLC puede funcionar, pero **no** se pueden enviar jobs HyP3.
 
 ## Instalación
 
