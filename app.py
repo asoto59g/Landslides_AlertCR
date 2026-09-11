@@ -82,22 +82,23 @@ def gdf_from_json(js: str):
     import geopandas as gpd
     from io import StringIO
 
-    return gpd.read_file(StringIO(js))
+    from src.cne_wfs import normalize_crs_wgs84
+
+    return normalize_crs_wgs84(gpd.read_file(StringIO(js)))
 
 
 def map_center(sites_gdf) -> tuple[float, float]:
     """Map center without unary_union (avoids GEOSException on invalid WFS polygons)."""
     try:
         minx, miny, maxx, maxy = sites_gdf.total_bounds
-        if all(map(lambda v: v == v and abs(v) < 1e9, (minx, miny, maxx, maxy))):
-            return ((miny + maxy) / 2.0, (minx + maxx) / 2.0)
+        lat = (miny + maxy) / 2.0
+        lon = (minx + maxx) / 2.0
+        # Reject projected leftovers (must be WGS84 lon/lat for Folium)
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            return (float(lat), float(lon))
     except Exception:
         pass
-    try:
-        cents = sites_gdf.geometry.centroid
-        return (float(cents.y.mean()), float(cents.x.mean()))
-    except Exception:
-        return (9.9, -84.1)
+    return (9.9, -84.1)
 
 
 def build_map(sites_gdf, coronas_gdf, selected_id: str | None, alert_by_id: dict):

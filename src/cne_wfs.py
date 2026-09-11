@@ -69,6 +69,25 @@ def fetch_wfs_geojson(
     return resp.json()
 
 
+def normalize_crs_wgs84(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Ensure geometries are in WGS84 lon/lat for maps and ASF search."""
+    if gdf.empty:
+        if gdf.crs is None:
+            return gdf.set_crs("EPSG:4326")
+        return gdf.to_crs("EPSG:4326") if str(gdf.crs) != "EPSG:4326" else gdf
+    out = gdf.copy()
+    if out.crs is None:
+        # Heuristic: large absolute coords ⇒ Costa Rica projected (CRTM05)
+        minx, miny, maxx, maxy = out.total_bounds
+        if max(abs(minx), abs(maxx), abs(miny), abs(maxy)) > 180:
+            out = out.set_crs("EPSG:5367")
+        else:
+            out = out.set_crs("EPSG:4326")
+    if str(out.crs) != "EPSG:4326":
+        out = out.to_crs("EPSG:4326")
+    return out
+
+
 def geojson_to_gdf(geojson: dict[str, Any]) -> gpd.GeoDataFrame:
     features = geojson.get("features") or []
     if not features:
@@ -84,11 +103,10 @@ def geojson_to_gdf(geojson: dict[str, Any]) -> gpd.GeoDataFrame:
         geoms.append(shape(geom))
         rows.append(props)
 
-    gdf = gpd.GeoDataFrame(rows, geometry=geoms, crs="EPSG:4326")
+    gdf = gpd.GeoDataFrame(rows, geometry=geoms, crs=None)
+    gdf = normalize_crs_wgs84(gdf)
     if not gdf.empty:
         try:
-            from shapely import make_valid
-
             gdf = gdf[gdf.geometry.notna()].copy()
             gdf["geometry"] = gdf.geometry.make_valid()
             gdf = gdf[~gdf.geometry.is_empty].copy()
@@ -99,10 +117,12 @@ def geojson_to_gdf(geojson: dict[str, Any]) -> gpd.GeoDataFrame:
 
 def save_cache(cache_dir: Path, layer: str, geojson: dict[str, Any]) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
+    # Persist normalized WGS84 GeoJSON so Streamlit Cloud maps stay in lon/lat
+    gdf = geojson_to_gdf(geojson)
     path = _cache_path(cache_dir, layer)
-    path.write_text(json.dumps(geojson), encoding="utf-8")
+    gdf.to_file(path, driver="GeoJSON")
     _meta_path(cache_dir, layer).write_text(
-        json.dumps({"fetched_at": time.time(), "layer": layer}, indent=2),
+        json.dumps({"fetched_at": time.time(), "layer": layer, "crs": "EPSG:4326"}, indent=2),
         encoding="utf-8",
     )
     return path
@@ -112,15 +132,11 @@ def load_cache(cache_dir: Path, layer: str) -> gpd.GeoDataFrame:
     path = _cache_path(cache_dir, layer)
     if not path.exists():
         raise FileNotFoundError(path)
-    return gpd.read_file(path)
+    return normalize_crs_wgs84(gpd.read_file(path))
 
 
 def load_local_geojson(path: Path) -> gpd.GeoDataFrame:
-    gdf = gpd.read_file(path)
-    if gdf.crs is None:
-        gdf = gdf.set_crs("EPSG:4326")
-    else:
-        gdf = gdf.to_crs("EPSG:4326")
+    gdf = normalize_crs_wgs84(gpd.read_file(path))
     # Normalize columns so UI can treat local fallback similarly
     if "name" not in gdf.columns:
         if "OBJECTID" in gdf.columns:
