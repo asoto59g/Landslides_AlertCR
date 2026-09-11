@@ -1,0 +1,36 @@
+wfs:
+  url: "http://mapas.cne.go.cr/servicios/cne/wfs"
+  deslizamientos: "cne:deslizamientos"
+  coronas: "cne:coronas_de_deslizamientos"
+  cache_ttl_hours: 24
+  timeout_seconds: 120
+
+paths:
+  cache_dir: "data/cache"
+  local_geojson: "data/Deslizamientos_CNE.geojson"
+  dem_dir: "data/dem"
+
+dem:
+  google_drive_id: "1LfaVUfK6g1O3vFprYtRpzs_rqIGNvsu6"
+  filename: "dem_cr.tif"
+
+aoi:
+  buffer_meters: 400
+
+alerts:
+  green_max_mm_month: 5.0
+  orange_min_mm_month: 10.0
+  accel_mild_mm_month2: 1.0
+  accel_clear_mm_month2: 3.0
+
+sentinel1:
+  max_results: 30
+  platform: "Sentinel-1"
+  processing_level: "GRD"
+
+disclaimer: >
+  Esta aplicación monitorea deformación potencial y prioriza sitios para
+  inspección. Detectar movimiento lento (p.ej. ~10 mm/mes) no equivale a
+  predecir cuándo colapsará una ladera. La amplitud Sentinel-1 sola no es
+  un precursor operativo fiable; la aceleración y el contexto estacional
+  importan (Shirzaei / Sah).
