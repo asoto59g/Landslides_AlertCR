@@ -85,6 +85,15 @@ def geojson_to_gdf(geojson: dict[str, Any]) -> gpd.GeoDataFrame:
         rows.append(props)
 
     gdf = gpd.GeoDataFrame(rows, geometry=geoms, crs="EPSG:4326")
+    if not gdf.empty:
+        try:
+            from shapely import make_valid
+
+            gdf = gdf[gdf.geometry.notna()].copy()
+            gdf["geometry"] = gdf.geometry.make_valid()
+            gdf = gdf[~gdf.geometry.is_empty].copy()
+        except Exception:
+            pass
     return gdf
 
 

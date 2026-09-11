@@ -4,11 +4,28 @@ from __future__ import annotations
 
 import geopandas as gpd
 import pandas as pd
+from shapely import make_valid
 from shapely.geometry import Point
 
 
-def ensure_site_id(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+def repair_geometries(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Fix invalid WFS polygons that break GEOS unary_union / buffers."""
+    if gdf.empty:
+        return gdf
     out = gdf.copy()
+    out = out[out.geometry.notna()].copy()
+    try:
+        out["geometry"] = out.geometry.make_valid()
+    except Exception:
+        out["geometry"] = out.geometry.apply(
+            lambda g: make_valid(g) if g is not None else g
+        )
+    out = out[~out.geometry.is_empty].copy()
+    return out.reset_index(drop=True)
+
+
+def ensure_site_id(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    out = repair_geometries(gdf)
     if "site_id" not in out.columns:
         out["site_id"] = [f"CNE-{i+1:04d}" for i in range(len(out))]
     if "name" not in out.columns:

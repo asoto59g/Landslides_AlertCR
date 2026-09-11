@@ -85,13 +85,28 @@ def gdf_from_json(js: str):
     return gpd.read_file(StringIO(js))
 
 
+def map_center(sites_gdf) -> tuple[float, float]:
+    """Map center without unary_union (avoids GEOSException on invalid WFS polygons)."""
+    try:
+        minx, miny, maxx, maxy = sites_gdf.total_bounds
+        if all(map(lambda v: v == v and abs(v) < 1e9, (minx, miny, maxx, maxy))):
+            return ((miny + maxy) / 2.0, (minx + maxx) / 2.0)
+    except Exception:
+        pass
+    try:
+        cents = sites_gdf.geometry.centroid
+        return (float(cents.y.mean()), float(cents.x.mean()))
+    except Exception:
+        return (9.9, -84.1)
+
+
 def build_map(sites_gdf, coronas_gdf, selected_id: str | None, alert_by_id: dict):
     if sites_gdf.empty:
         m = folium.Map(location=[9.9, -84.1], zoom_start=8)
         return m
 
-    centroid = sites_gdf.geometry.unary_union.centroid
-    m = folium.Map(location=[centroid.y, centroid.x], zoom_start=10, tiles="OpenStreetMap")
+    lat, lon = map_center(sites_gdf)
+    m = folium.Map(location=[lat, lon], zoom_start=10, tiles="OpenStreetMap")
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri",
@@ -101,28 +116,37 @@ def build_map(sites_gdf, coronas_gdf, selected_id: str | None, alert_by_id: dict
     ).add_to(m)
 
     if coronas_gdf is not None and not coronas_gdf.empty:
-        folium.GeoJson(
-            coronas_gdf.__geo_interface__,
-            name="Coronas CNE",
-            style_function=lambda _: {"color": "#8d6e63", "weight": 1, "opacity": 0.5},
-        ).add_to(m)
+        try:
+            folium.GeoJson(
+                coronas_gdf.__geo_interface__,
+                name="Coronas CNE",
+                style_function=lambda _: {"color": "#8d6e63", "weight": 1, "opacity": 0.5},
+            ).add_to(m)
+        except Exception:
+            pass
 
     for _, row in sites_gdf.iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
         sid = row.get("site_id", "")
         level = alert_by_id.get(sid)
         color = LEVEL_COLOR.get(level, "#1565c0") if level else "#1565c0"
         weight = 4 if sid == selected_id else 2
-        folium.GeoJson(
-            row.geometry.__geo_interface__,
-            name=str(row.get("name", sid)),
-            style_function=lambda _feat, c=color, w=weight: {
-                "color": c,
-                "weight": w,
-                "fillOpacity": 0.25,
-                "fillColor": c,
-            },
-            tooltip=f"{row.get('name', sid)} ({sid})",
-        ).add_to(m)
+        try:
+            folium.GeoJson(
+                geom.__geo_interface__,
+                name=str(row.get("name", sid)),
+                style_function=lambda _feat, c=color, w=weight: {
+                    "color": c,
+                    "weight": w,
+                    "fillOpacity": 0.25,
+                    "fillColor": c,
+                },
+                tooltip=f"{row.get('name', sid)} ({sid})",
+            ).add_to(m)
+        except Exception:
+            continue
 
     folium.LayerControl().add_to(m)
     return m
