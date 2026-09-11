@@ -37,20 +37,24 @@ def site_insar_dir(root: Path, site_id: str) -> Path:
 
 
 def get_earthdata_creds() -> tuple[str | None, str | None]:
-    """Prefer Streamlit secrets, then env vars."""
+    """Prefer session form → Streamlit secrets → env vars."""
     user = pwd = None
     try:
         import streamlit as st
 
-        user = st.secrets.get("EARTHDATA_USERNAME") or st.secrets.get("earthdata_username")
-        pwd = st.secrets.get("EARTHDATA_PASSWORD") or st.secrets.get("earthdata_password")
+        user = st.session_state.get("earthdata_username") or None
+        pwd = st.session_state.get("earthdata_password") or None
+        if not user:
+            user = st.secrets.get("EARTHDATA_USERNAME") or st.secrets.get("earthdata_username")
+        if not pwd:
+            pwd = st.secrets.get("EARTHDATA_PASSWORD") or st.secrets.get("earthdata_password")
     except Exception:
         pass
     import os
 
     user = user or os.environ.get("EARTHDATA_USERNAME")
     pwd = pwd or os.environ.get("EARTHDATA_PASSWORD")
-    return user, pwd
+    return (str(user) if user else None), (str(pwd) if pwd else None)
 
 
 def search_slc_stack(

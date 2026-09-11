@@ -398,12 +398,65 @@ No se procesa el país completo: únicamente el sitio actual o un lote acotado d
         )
         icfg = cfg.get("insar", {})
         user, pwd = get_earthdata_creds()
-        if user:
-            st.success(f"Earthdata detectado: `{user}`")
+
+        with st.expander("Cómo configurar Earthdata (HyP3)", expanded=not bool(user and pwd)):
+            st.markdown(
+                """
+**Opción A — Streamlit Cloud (recomendado para la app publicada)**
+
+1. Abra su app en [share.streamlit.io](https://share.streamlit.io/) / Streamlit Cloud  
+2. En la app desplegada: menú **⋮** (arriba a la derecha) → **Settings** → **Secrets**  
+   (también: *Manage app* → **Settings** → **Secrets**)  
+3. Pegue exactamente:
+
+```toml
+EARTHDATA_USERNAME = "su_usuario_urs"
+EARTHDATA_PASSWORD = "su_password_urs"
+```
+
+4. Guarde y haga **Reboot** de la app  
+
+Cuenta NASA: [urs.earthdata.nasa.gov](https://urs.earthdata.nasa.gov/) (crear usuario si no tiene).
+
+**Opción B — Local (PC)**
+
+Cree el archivo `.streamlit/secrets.toml` en la raíz del proyecto (hay un ejemplo en `.streamlit/secrets.toml.example`).
+
+**Opción C — Esta sesión (abajo)**  
+Ingrese usuario/contraseña solo para esta sesión del navegador (no se guarda en el repo).
+"""
+            )
+
+        with st.form("earthdata_form"):
+            st.markdown("#### Credenciales Earthdata (sesión)")
+            f_user = st.text_input(
+                "EARTHDATA_USERNAME",
+                value=user or "",
+                help="Usuario de https://urs.earthdata.nasa.gov/",
+            )
+            f_pwd = st.text_input(
+                "EARTHDATA_PASSWORD",
+                value="",
+                type="password",
+                help="No se sube a GitHub; solo vive en session_state de Streamlit.",
+            )
+            saved = st.form_submit_button("Usar en esta sesión")
+            if saved:
+                if f_user and f_pwd:
+                    st.session_state["earthdata_username"] = f_user.strip()
+                    st.session_state["earthdata_password"] = f_pwd
+                    st.success("Credenciales guardadas en esta sesión. Ya puede enviar jobs HyP3.")
+                    st.rerun()
+                else:
+                    st.error("Usuario y contraseña son obligatorios.")
+
+        user, pwd = get_earthdata_creds()
+        if user and pwd:
+            st.success(f"Earthdata listo para HyP3: `{user}`")
         else:
             st.warning(
-                "Configure `EARTHDATA_USERNAME` y `EARTHDATA_PASSWORD` en "
-                "`.streamlit/secrets.toml` o variables de entorno para enviar jobs HyP3."
+                "Aún no hay credenciales. Use el formulario de arriba, Secrets de Streamlit Cloud, "
+                "o `.streamlit/secrets.toml` en local."
             )
 
         c_a, c_b, c_c = st.columns(3)
